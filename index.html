@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>פאנל בריסטה | ניהול עגלת קפה</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .tab-btn.active {
+      background-color: #d97706;
+      color: #ffffff;
+      border-color: #f59e0b;
+    }
+  </style>
+</head>
+<body class="bg-stone-950 text-stone-100 min-h-screen">
+
+  <!-- מסך התחברות מנהל -->
+  <div id="login-screen" class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-stone-900 border border-stone-800 rounded-2xl p-8 w-full max-w-md shadow-2xl">
+      <div class="text-center mb-6">
+        <div class="text-5xl mb-3">☕</div>
+        <h1 class="text-2xl font-bold text-amber-400">פאנל בריסטה וניהול</h1>
+        <p class="text-stone-400 text-sm mt-1">התחברות למערכת ניהול עגלת הקפה</p>
+      </div>
+   <form id="admin-login-form" class="space-y-4">
+        <div>
+          <label class="block text-sm text-stone-300 mb-1">סיסמת גישה למנהל</label>
+          <input type="password" id="admin-password" required
+            class="w-full bg-stone-800 border border-stone-700 rounded-xl px-4 py-3 text-white text-center tracking-widest focus:outline-none focus:border-amber-500"
+            placeholder="••••••••••••" />
+        </div>
+        <p id="login-error" class="text-red-400 text-sm hidden"></p>
+        <button type="submit"
+          class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl transition cursor-pointer">
+          כניסה למערכת
+        </button>
+      </form>
+      <div class="text-center text-xs text-stone-600 mt-6 tracking-widest">MADE BY gilad_c</div>
+    </div>
+  </div>
+
+  <!-- ממשק הניהול הראשי -->
+  <div id="admin-app" class="hidden max-w-7xl mx-auto p-4 pb-20">
+    
+    <!-- כותרת וסרגל לשוניות עליון -->
+    <header class="bg-stone-900 border border-stone-800 rounded-2xl p-4 mb-6 shadow-lg">
+      <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <div class="flex items-center gap-3">
+          <span class="text-3xl">☕</span>
+          <div>
+            <h1 class="text-xl font-bold text-amber-400">עגלת הקפה — מסך בריסטה</h1>
+            <p class="text-xs text-stone-400" id="live-clock">טוען שעה...</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="cart-status-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700">
+            🟢 העגלה פתוחה להזמנות
+          </span>
+        </div>
+      </div>
+
+      <!-- סרגל ניווט -->
+      <nav id="admin-navbar" class="flex flex-wrap gap-2 border-t border-stone-800 pt-4">
+        <button data-tab="orders" class="tab-btn active px-4 py-2.5 rounded-xl bg-stone-800 border border-stone-700 text-sm font-bold transition cursor-pointer">
+          ☕ הזמנות חיות (KDS)
+        </button>
+        <button data-tab="menu" class="tab-btn px-4 py-2.5 rounded-xl bg-stone-800 border border-stone-700 text-sm font-bold transition cursor-pointer">
+          🥐 תפריט, מלאי ושעות
+        </button>
+        <button data-tab="reviews" class="tab-btn px-4 py-2.5 rounded-xl bg-stone-800 border border-stone-700 text-sm font-bold transition cursor-pointer">
+          ⭐ דירוגים ומשובים
+        </button>
+        <!-- לשונית לקוחות תוזרק אוטומטית על ידי clientsTab.js -->
+        <button id="logout-btn" class="mr-auto px-4 py-2.5 rounded-xl bg-red-950/60 hover:bg-red-900 border border-red-800/60 text-red-200 text-sm font-bold transition cursor-pointer">
+          יציאה
+        </button>
+      </nav>
+    </header>
+
+    <!-- לשונית 1: הזמנות חיות + הכנסות + התראות הגעה -->
+    <section id="tab-orders" class="tab-content space-y-6">
+      <!-- כאן מוזרק כרטיס הכנסות חי מ-revenueFix.js -->
+      <div id="revenue-container"></div>
+
+      <!-- התראות הגעה / איחור מלקוחות -->
+      <div id="arrival-alerts-container" class="hidden bg-amber-950/40 border border-amber-600/60 rounded-2xl p-4">
+        <h3 class="text-amber-400 font-bold text-sm mb-2">⏱️ עדכוני הגעה מלקוחות בדרך:</h3>
+        <div id="arrival-alerts-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"></div>
+      </div>
+
+      <!-- סינון הזמנות -->
+      <div class="flex flex-wrap items-center justify-between gap-3 bg-stone-900/70 p-3 rounded-xl border border-stone-800">
+        <div class="flex flex-wrap gap-2">
+          <button data-filter="active" class="order-filter-btn bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold cursor-pointer">
+            הזמנות פעילות להכנה
+          </button>
+          <button data-filter="today" class="order-filter-btn bg-stone-800 text-stone-300 px-3 py-1.5 rounded-lg text-sm font-bold cursor-pointer">
+            כל הזמנות היום
+          </button>
+          <button data-filter="all" class="order-filter-btn bg-stone-800 text-stone-300 px-3 py-1.5 rounded-lg text-sm font-bold cursor-pointer">
+            כל ההיסטוריה
+          </button>
+        </div>
+        <input type="date" id="orders-date-filter" class="bg-stone-800 border border-stone-700 rounded-lg px-3 py-1.5 text-sm text-white" />
+      </div>
+
+      <!-- לוח כרטיסי הזמנות (KDS) -->
+      <div id="orders-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="text-stone-400 text-center col-span-full py-12">טוען הזמנות...</div>
+      </div>
+    </section>
+
+    <!-- לשונית 2: ניהול תפריט ושעות (מנוהל ע"י menuManager.js) -->
+    <section id="tab-menu" class="tab-content hidden"></section>
+
+    <!-- לשונית 3: דירוגים ומשובים (מנוהל ע"י adminReviews.js) -->
+    <section id="tab-reviews" class="tab-content hidden"></section>
+
+    <!-- לשונית 4: לקוחות ופרופילים (מוזרק ומנוהל ע"י clientsTab.js) -->
+    <section id="tab-clients" class="tab-content hidden"></section>
+
+  </div>
+
+  <!-- טעינת מודולים עם פרמטר גרסה למניעת Cache -->
+  <script type="module" src="./ordersBoard.js?v=2"></script>
+  <script type="module" src="./revenueFix.js?v=2"></script>
+  <script type="module" src="./menuManager.js?v=2"></script>
+  <script type="module" src="./clientsTab.js?v=2"></script>
+  <script type="module" src="./adminReviews.js?v=2"></script>
+</body>
+</html>
