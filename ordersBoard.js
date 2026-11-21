@@ -9,7 +9,6 @@ import {
   orderBy
 } from "./firebase.js";
 
-// \u05de\u05e9\u05ea\u05e0\u05d9 \u05de\u05e6\u05d1
 let allOrders = [];
 let noShowsMap = {};
 let clientLatesMap = {};
@@ -28,7 +27,7 @@ setInterval(() => {
   }
 }, 1000);
 
-// \u05e0\u05d9\u05d4\u05d5\u05dc \u05d4\u05ea\u05d7\u05d1\u05e8\u05d5\u05ea \u05e2\u05dd \u05e1\u05d9\u05e1\u05de\u05d4 \u05d1\u05dc\u05d1\u05d3
+// \u05d4\u05ea\u05d7\u05d1\u05e8\u05d5\u05ea \u05e2\u05dd \u05e1\u05d9\u05e1\u05de\u05d4 \u05d1\u05dc\u05d1\u05d3
 const ADMIN_PASS = "!@#$%^&*12345678";
 const loginScreen = document.getElementById("login-screen");
 const adminApp = document.getElementById("admin-app");
@@ -37,12 +36,12 @@ const loginError = document.getElementById("login-error");
 
 function checkAdminSession() {
   if (localStorage.getItem("coffee_admin_auth") === "true") {
-    loginScreen.classList.add("hidden");
-    adminApp.classList.remove("hidden");
+    loginScreen?.classList.add("hidden");
+    adminApp?.classList.remove("hidden");
     initRealtimeListeners();
   } else {
-    loginScreen.classList.remove("hidden");
-    adminApp.classList.add("hidden");
+    loginScreen?.classList.remove("hidden");
+    adminApp?.classList.add("hidden");
   }
 }
 
@@ -50,14 +49,16 @@ checkAdminSession();
 
 loginForm?.addEventListener("submit", (e) => {
   e.preventDefault();
-  loginError.classList.add("hidden");
+  loginError?.classList.add("hidden");
   const password = document.getElementById("admin-password").value;
   if (password === ADMIN_PASS) {
     localStorage.setItem("coffee_admin_auth", "true");
     checkAdminSession();
   } else {
-    loginError.textContent = "\u05e1\u05d9\u05e1\u05de\u05d4 \u05e9\u05d2\u05d5\u05d9\u05d4, \u05e0\u05e1\u05d4 \u05e9\u05d5\u05d1.";
-    loginError.classList.remove("hidden");
+    if (loginError) {
+      loginError.textContent = "\u05e1\u05d9\u05e1\u05de\u05d4 \u05e9\u05d2\u05d5\u05d9\u05d4, \u05e0\u05e1\u05d4 \u05e9\u05d5\u05d1.";
+      loginError.classList.remove("hidden");
+    }
   }
 });
 
@@ -68,7 +69,7 @@ document.getElementById("logout-btn")?.addEventListener("click", () => {
   }
 });
 
-// \u05de\u05e2\u05d1\u05e8 \u05d1\u05d9\u05df \u05dc\u05e9\u05d5\u05e0\u05d9\u05d5\u05ea
+// \u05de\u05e2\u05d1\u05e8 \u05d1\u05d9\u05df \u05dc\u05e9\u05d5\u05e0\u05d9\u05d5\u05ea (\u05d2\u05dc\u05d5\u05d1\u05dc\u05d9 \u05db\u05d3\u05d9 \u05e9\u05d9\u05e2\u05d1\u05d5\u05d3 \u05ea\u05de\u05d9\u05d3 \u05d2\u05dd \u05e2\u05dc \u05db\u05e4\u05ea\u05d5\u05e8\u05d9\u05dd \u05de\u05d5\u05d6\u05e8\u05e7\u05d9\u05dd)
 export function switchTab(tabName) {
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     if (btn.dataset.tab === tabName) {
@@ -83,10 +84,13 @@ export function switchTab(tabName) {
   const target = document.getElementById(`tab-${tabName}`);
   if (target) target.classList.remove("hidden");
 }
+window.switchTab = switchTab;
 
-document.getElementById("admin-navbar")?.addEventListener("click", (e) => {
+// \u05d7\u05d9\u05d1\u05d5\u05e8 \u05d4\u05d0\u05d6\u05e0\u05d4 \u05dc\u05db\u05dc \u05dc\u05d7\u05d9\u05e6\u05d4 \u05d1\u05de\u05e1\u05de\u05da \u05e2\u05dc \u05db\u05e4\u05ea\u05d5\u05e8 \u05dc\u05e9\u05d5\u05e0\u05d9\u05ea
+document.addEventListener("click", (e) => {
   const btn = e.target.closest(".tab-btn");
   if (btn && btn.dataset.tab) {
+    e.preventDefault();
     switchTab(btn.dataset.tab);
   }
 });
@@ -115,20 +119,17 @@ document.querySelectorAll(".order-filter-btn").forEach((btn) => {
   });
 });
 
-// \u05d4\u05d0\u05d6\u05e0\u05d4 \u05d1\u05d6\u05de\u05df \u05d0\u05de\u05ea \u05dc-Firestore
 let listenersInitialized = false;
 function initRealtimeListeners() {
   if (listenersInitialized) return;
   listenersInitialized = true;
 
-  // 1. \u05d4\u05d6\u05de\u05e0\u05d5\u05ea
   const qOrders = query(collection(db, "orders"), orderBy("pickupTime", "asc"));
   onSnapshot(qOrders, (snapshot) => {
     allOrders = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderOrders();
   });
 
-  // 2. \u05d4\u05ea\u05e8\u05d0\u05d5\u05ea \u05d4\u05d2\u05e2\u05d4 / \u05d0\u05d9\u05d7\u05d5\u05e8
   onSnapshot(collection(db, "arrival_alerts"), (snapshot) => {
     const container = document.getElementById("arrival-alerts-container");
     const list = document.getElementById("arrival-alerts-list");
@@ -163,7 +164,6 @@ function initRealtimeListeners() {
     });
   });
 
-  // 3. \u05de\u05d5\u05e0\u05d9 \u05d0\u05d9-\u05d0\u05d9\u05e1\u05d5\u05e3 \u05d5\u05d0\u05d9\u05d7\u05d5\u05e8\u05d9\u05dd
   onSnapshot(doc(db, "config", "no_shows"), (snap) => {
     noShowsMap = snap.exists() ? snap.data().counts || {} : {};
     renderOrders();
@@ -174,7 +174,6 @@ function initRealtimeListeners() {
     renderOrders();
   });
 
-  // 4. \u05e1\u05d8\u05d8\u05d5\u05e1 \u05e4\u05ea\u05d9\u05d7\u05ea \u05e2\u05d2\u05dc\u05d4
   onSnapshot(doc(db, "config", "settings"), (snap) => {
     const badge = document.getElementById("cart-status-badge");
     if (!badge || !snap.exists()) return;
@@ -242,7 +241,6 @@ function renderOrders() {
       return `
       <div class="bg-stone-900 border ${order.status === "ready" ? "border-emerald-500" : order.status === "preparing" ? "border-amber-500" : "border-stone-800"} rounded-2xl p-4 shadow-lg flex flex-col justify-between">
         <div>
-          <!-- \u05db\u05d5\u05ea\u05e8\u05ea \u05db\u05e8\u05d8\u05d9\u05e1 -->
           <div class="flex items-start justify-between gap-2 mb-3">
             <div>
               <div class="flex items-center gap-2">
@@ -255,7 +253,6 @@ function renderOrders() {
             ${statusBadge}
           </div>
 
-          <!-- \u05ea\u05d2\u05d9 \u05d0\u05d6\u05d4\u05e8\u05d4 -->
           ${
             noShows > 0 || lates > 0
               ? `
@@ -267,7 +264,6 @@ function renderOrders() {
               : ""
           }
 
-          <!-- \u05e4\u05d9\u05e8\u05d5\u05d8 \u05e4\u05e8\u05d9\u05d8\u05d9\u05dd -->
           <div class="bg-stone-950/70 rounded-xl p-3 mb-3 border border-stone-800/80">
             ${itemsHtml}
             <div class="flex justify-between items-center pt-2 mt-2 border-t border-stone-700 font-bold text-base">
@@ -277,7 +273,6 @@ function renderOrders() {
           </div>
         </div>
 
-        <!-- \u05db\u05e4\u05ea\u05d5\u05e8\u05d9 \u05e4\u05e2\u05d5\u05dc\u05d4 \u05dc\u05d1\u05e8\u05d9\u05e1\u05d8\u05d4 -->
         <div class="space-y-2 pt-2">
           ${renderStatusButtons(order)}
           <div class="flex gap-2">
@@ -308,7 +303,6 @@ function renderOrders() {
     })
     .join("");
 
-  // \u05d7\u05d9\u05d1\u05d5\u05e8 \u05d0\u05d9\u05e8\u05d5\u05e2\u05d9 \u05dc\u05d7\u05d9\u05e6\u05d4
   grid.querySelectorAll("[data-next-status]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.orderId;
