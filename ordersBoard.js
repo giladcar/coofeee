@@ -9,6 +9,8 @@ import {
   orderBy
 } from "./firebase.js";
 
+// \u05de\u05e9\u05ea\u05e0\u05d9 \u05de\u05e6\u05d1 (\u05de\u05d5\u05d2\u05d3\u05e8\u05d9\u05dd \u05d1\u05e8\u05d0\u05e9 \u05d4\u05e7\u05d5\u05d1\u05e5)
+let listenersInitialized = false;
 let allOrders = [];
 let noShowsMap = {};
 let clientLatesMap = {};
@@ -69,7 +71,7 @@ document.getElementById("logout-btn")?.addEventListener("click", () => {
   }
 });
 
-// \u05de\u05e2\u05d1\u05e8 \u05d1\u05d9\u05df \u05dc\u05e9\u05d5\u05e0\u05d9\u05d5\u05ea (\u05d2\u05dc\u05d5\u05d1\u05dc\u05d9 \u05db\u05d3\u05d9 \u05e9\u05d9\u05e2\u05d1\u05d5\u05d3 \u05ea\u05de\u05d9\u05d3 \u05d2\u05dd \u05e2\u05dc \u05db\u05e4\u05ea\u05d5\u05e8\u05d9\u05dd \u05de\u05d5\u05d6\u05e8\u05e7\u05d9\u05dd)
+// \u05de\u05e2\u05d1\u05e8 \u05d1\u05d9\u05df \u05dc\u05e9\u05d5\u05e0\u05d9\u05d5\u05ea
 export function switchTab(tabName) {
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     if (btn.dataset.tab === tabName) {
@@ -86,7 +88,6 @@ export function switchTab(tabName) {
 }
 window.switchTab = switchTab;
 
-// \u05d7\u05d9\u05d1\u05d5\u05e8 \u05d4\u05d0\u05d6\u05e0\u05d4 \u05dc\u05db\u05dc \u05dc\u05d7\u05d9\u05e6\u05d4 \u05d1\u05de\u05e1\u05de\u05da \u05e2\u05dc \u05db\u05e4\u05ea\u05d5\u05e8 \u05dc\u05e9\u05d5\u05e0\u05d9\u05ea
 document.addEventListener("click", (e) => {
   const btn = e.target.closest(".tab-btn");
   if (btn && btn.dataset.tab) {
@@ -119,7 +120,6 @@ document.querySelectorAll(".order-filter-btn").forEach((btn) => {
   });
 });
 
-let listenersInitialized = false;
 function initRealtimeListeners() {
   if (listenersInitialized) return;
   listenersInitialized = true;
