@@ -7,12 +7,9 @@ import {
   updateDoc,
   deleteDoc,
   onSnapshot,
-  query,
-  orderBy,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// סיסמת ברירת מחדל למנהל (ניתן לשנות גם ב-Firestore תחת config/settings -> adminPassword)
-const DEFAULT_ADMIN_PASS = "!20!26";
+const DEFAULT_ADMIN_PASS = "!@#$%^&*12345678";
 
 let allOrders = [];
 let activeOrdersSubTab = "active"; // "active" | "completed"
@@ -35,23 +32,7 @@ function triggerAdminNotification(title, body) {
     osc.stop(ctx.currentTime + 0.25);
   } catch {}
 }
-let knownOrderIds = new Set();
-let isFirstOrdersLoad = true;
 
-function triggerAdminNotification(title, body) {
-  if ("Notification" in window && Notification.permission === "granted") {
-    new Notification(title, { body });
-  }
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.25);
-  } catch {}
-}
 // --- 1. ניהול מסך התחברות מנהל ---
 function initAdminAuth() {
   const loginScreen = document.getElementById("login-screen");
@@ -84,16 +65,14 @@ function initAdminAuth() {
       if (snap.exists() && snap.data().adminPassword) {
         expectedPass = String(snap.data().adminPassword).trim();
       }
-    } catch (err) {
-      console.warn("Using default admin password:", err);
-    }
+    } catch {}
 
     if (entered === expectedPass || entered === DEFAULT_ADMIN_PASS) {
       localStorage.setItem("coffee_admin_auth", "true");
       showAdminDashboard();
     } else {
       if (errorEl) {
-        errorEl.textContent = "סיסמא שגויה נסה שוב.";
+        errorEl.textContent = "סיסמה שגויה. נסה שוב.";
         errorEl.classList.remove("hidden");
       }
     }
@@ -118,7 +97,7 @@ function startClock() {
   setInterval(update, 1000);
 }
 
-// --- 2. האזנה להזמנות וקישורי תשלום ---
+// --- 2. האזנה לכל ההזמנות וקישורי התשלום בזמן אמת ---
 function startOrdersListener() {
   onSnapshot(doc(db, "config", "settings"), (snap) => {
     if (snap.exists()) {
@@ -142,10 +121,15 @@ function startOrdersListener() {
     }
   });
 
-  const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
-  onSnapshot(q, (snap) => {
-    allOrders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-	if (isFirstOrdersLoad) {
+  // טוען את כל המסמכים באוסף orders וממיין בצד הלקוח כדי לא לפספס אף הזמנה
+  onSnapshot(collection(db, "orders"), (snap) => {
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    list.sort((a, b) =>
+      String(b.createdAt || b.date || "").localeCompare(String(a.createdAt || a.date || ""))
+    );
+    allOrders = list;
+
+    if (isFirstOrdersLoad) {
       snap.docs.forEach((d) => knownOrderIds.add(d.id));
       isFirstOrdersLoad = false;
     } else {
@@ -161,6 +145,7 @@ function startOrdersListener() {
         }
       });
     }
+
     renderOrdersBoard();
   });
 }
@@ -185,7 +170,7 @@ function getStatusLabel(ord) {
     case "canceled":
       return "בוטל ע״י לקוח";
     default:
-      return ord.status || "";
+      return ord.status || "⏳ ממתינה";
   }
 }
 
@@ -193,14 +178,18 @@ function renderOrdersBoard() {
   const grid = document.getElementById("orders-grid");
   if (!grid) return;
 
-  // מוודאים שה-grid יתפרס לרוחב מלא
   grid.className = "space-y-4";
 
   const activeList = allOrders.filter((o) =>
-    ["pending", "preparing", "ready", "out_for_delivery", "custom"].includes(o.status)
+    ["pending", "preparing", "ready", "out_for_delivery", "custom"].includes(o.status || "pending")
   );
   const completedList = allOrders.filter((o) => o.status === "completed");
   const listToShow = activeOrdersSubTab === "active" ? activeList : completedList;
+
+  const notifGranted =
+    typeof window !== "undefined" &&
+    "Notification" in window &&
+    Notification.permission === "granted";
 
   grid.innerHTML = `
     <!-- הגדרת קישורי Bit ו-PayBox -->
@@ -220,8 +209,8 @@ function renderOrdersBoard() {
       </div>
     </div>
 
-    <!-- לשוניות: הזמנות פעילות / הוכנו והוזמנו -->
-    <div class="flex flex-wrap gap-2">
+    <!-- לשוניות: הזמנות פעילות / הוכנו והוזמנו + כפתור התראות לטלפון -->
+    <div class="flex flex-wrap items-center gap-2">
       <button id="tab-active-orders" type="button"
         class="px-4 py-2.5 rounded-xl text-sm font-black border transition cursor-pointer ${
           activeOrdersSubTab === "active"
@@ -238,9 +227,13 @@ function renderOrdersBoard() {
         }">
         📦 הוכנו והוזמנו (${completedList.length})
       </button>
-	  <button id="enable-admin-notifs-btn" type="button"
-        class="px-4 py-2.5 rounded-xl text-sm font-bold border border-amber-500/40 bg-stone-900 text-amber-400 hover:bg-amber-500/20 cursor-pointer">
-        🔔 הפעל התראות לטלפון
+      <button id="enable-admin-notifs-btn" type="button"
+        class="mr-auto px-4 py-2.5 rounded-xl text-sm font-bold border transition cursor-pointer ${
+          notifGranted
+            ? "bg-emerald-950/60 text-emerald-300 border-emerald-700"
+            : "bg-stone-900 text-amber-400 border-amber-500/40 hover:bg-amber-500/20"
+        }">
+        ${notifGranted ? "🔔 התראות פעילות" : "🔕 הפעל התראות לטלפון"}
       </button>
     </div>
 
@@ -279,7 +272,8 @@ function renderOrdersBoard() {
     activeOrdersSubTab = "completed";
     renderOrdersBoard();
   });
-document.getElementById("enable-admin-notifs-btn")?.addEventListener("click", async () => {
+
+  document.getElementById("enable-admin-notifs-btn")?.addEventListener("click", async () => {
     if (!("Notification" in window)) {
       alert("הדפדפן לא תומך בהתראות קופצות.");
       return;
@@ -287,8 +281,10 @@ document.getElementById("enable-admin-notifs-btn")?.addEventListener("click", as
     const perm = await Notification.requestPermission();
     if (perm === "granted") {
       triggerAdminNotification("☕ פאנל בריסטה", "התראות הופעלו! תקבל התראה וצליל על כל הזמנה חדשה.");
+      renderOrdersBoard();
     }
   });
+
   bindOrderCardEvents();
 }
 
@@ -447,5 +443,4 @@ function bindOrderCardEvents() {
   });
 }
 
-// הפעלה מיידית
 initAdminAuth();
