@@ -18,7 +18,40 @@ let allOrders = [];
 let activeOrdersSubTab = "active"; // "active" | "completed"
 let openCustomNoteOrderId = null;
 let paymentSettings = { bitLink: "", payboxLink: "" };
+let knownOrderIds = new Set();
+let isFirstOrdersLoad = true;
 
+function triggerAdminNotification(title, body) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification(title, { body });
+  }
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.25);
+  } catch {}
+}
+let knownOrderIds = new Set();
+let isFirstOrdersLoad = true;
+
+function triggerAdminNotification(title, body) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification(title, { body });
+  }
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.25);
+  } catch {}
+}
 // --- 1. ניהול מסך התחברות מנהל ---
 function initAdminAuth() {
   const loginScreen = document.getElementById("login-screen");
@@ -112,6 +145,22 @@ function startOrdersListener() {
   const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
   onSnapshot(q, (snap) => {
     allOrders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+	if (isFirstOrdersLoad) {
+      snap.docs.forEach((d) => knownOrderIds.add(d.id));
+      isFirstOrdersLoad = false;
+    } else {
+      snap.docs.forEach((d) => {
+        if (!knownOrderIds.has(d.id)) {
+          knownOrderIds.add(d.id);
+          const ord = d.data();
+          const typeLabel = ord.orderType === "delivery" ? "משלוח" : "איסוף במקום";
+          triggerAdminNotification(
+            "☕ הזמנה חדשה התקבלה!",
+            `${ord.firstName || "לקוח"} • ${typeLabel} • ₪${ord.totalPrice || 0}`
+          );
+        }
+      });
+    }
     renderOrdersBoard();
   });
 }
@@ -189,6 +238,10 @@ function renderOrdersBoard() {
         }">
         📦 הוכנו והוזמנו (${completedList.length})
       </button>
+	  <button id="enable-admin-notifs-btn" type="button"
+        class="px-4 py-2.5 rounded-xl text-sm font-bold border border-amber-500/40 bg-stone-900 text-amber-400 hover:bg-amber-500/20 cursor-pointer">
+        🔔 הפעל התראות לטלפון
+      </button>
     </div>
 
     ${
@@ -226,7 +279,16 @@ function renderOrdersBoard() {
     activeOrdersSubTab = "completed";
     renderOrdersBoard();
   });
-
+document.getElementById("enable-admin-notifs-btn")?.addEventListener("click", async () => {
+    if (!("Notification" in window)) {
+      alert("הדפדפן לא תומך בהתראות קופצות.");
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm === "granted") {
+      triggerAdminNotification("☕ פאנל בריסטה", "התראות הופעלו! תקבל התראה וצליל על כל הזמנה חדשה.");
+    }
+  });
   bindOrderCardEvents();
 }
 
