@@ -2,6 +2,7 @@ import { db } from "./firebase.js";
 import {
   collection,
   doc,
+  setDoc,
   updateDoc,
   deleteDoc,
   onSnapshot,
@@ -12,11 +13,23 @@ import {
 let allOrders = [];
 let activeOrdersSubTab = "active"; // "active" | "completed"
 let openCustomNoteOrderId = null;
+let paymentSettings = { bitLink: "", payboxLink: "" };
 
 export function initOrdersBoard() {
   const container = document.getElementById("orders-container");
   if (!container) return;
 
+  // האזנה לקישורי תשלום קיימים
+  onSnapshot(doc(db, "config", "settings"), (snap) => {
+    if (snap.exists()) {
+      const data = snap.data();
+      paymentSettings.bitLink = data.bitLink || "";
+      paymentSettings.payboxLink = data.payboxLink || "";
+      renderOrdersBoard();
+    }
+  });
+
+  // האזנה להזמנות
   const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
   onSnapshot(q, (snap) => {
     allOrders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -60,6 +73,21 @@ function renderOrdersBoard() {
   const listToShow = activeOrdersSubTab === "active" ? activeList : completedList;
 
   container.innerHTML = `
+    <!-- אזור הזנת קישורי Bit ו-PayBox -->
+    <div style="background:#18181b; border:1px solid #27272a; border-radius:16px; padding:14px; margin-bottom:16px;">
+      <div style="font-weight:800; color:#fbbf24; font-size:14px; margin-bottom:10px;">
+        💳 קישורי תשלום ללקוחות (Bit / PayBox)
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; align-items:center;">
+        <input id="admin-bit-link" type="url" placeholder="הדבק קישור לתשלום ב-Bit..." value="${paymentSettings.bitLink}" style="padding:9px 12px; border-radius:10px; border:1px solid #3f3f46; background:#09090b; color:#fff; font-size:13px; direction:ltr;" />
+        <input id="admin-paybox-link" type="url" placeholder="הדבק קישור לתשלום ב-PayBox..." value="${paymentSettings.payboxLink}" style="padding:9px 12px; border-radius:10px; border:1px solid #3f3f46; background:#09090b; color:#fff; font-size:13px; direction:ltr;" />
+        <button id="save-payment-links-btn" style="padding:10px 16px; border-radius:10px; background:#f59e0b; color:#09090b; font-weight:900; border:none; font-size:13px; cursor:pointer;">
+          💾 שמור קישורי תשלום
+        </button>
+      </div>
+    </div>
+
+    <!-- לשוניות: הזמנות פעילות / הוכנו והוזמנו -->
     <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;">
       <button id="tab-active-orders" style="padding:10px 18px; border-radius:12px; font-weight:800; border:1px solid ${
         activeOrdersSubTab === "active" ? "#f59e0b" : "#3f3f46"
@@ -92,6 +120,17 @@ function renderOrdersBoard() {
     }
   `;
 
+  document.getElementById("save-payment-links-btn")?.addEventListener("click", async () => {
+    const bitVal = document.getElementById("admin-bit-link")?.value.trim() || "";
+    const payboxVal = document.getElementById("admin-paybox-link")?.value.trim() || "";
+    await setDoc(
+      doc(db, "config", "settings"),
+      { bitLink: bitVal, payboxLink: payboxVal },
+      { merge: true }
+    );
+    alert("קישורי Bit ו-PayBox נשמרו בהצלחה ומופיעים כעת אצל הלקוחות!");
+  });
+
   document.getElementById("tab-active-orders")?.addEventListener("click", () => {
     activeOrdersSubTab = "active";
     renderOrdersBoard();
@@ -102,7 +141,7 @@ function renderOrdersBoard() {
     renderOrdersBoard();
   });
 
-  bindOrderCardEvents(listToShow);
+  bindOrderCardEvents();
 }
 
 function renderOrderCard(ord) {
@@ -127,7 +166,7 @@ function renderOrderCard(ord) {
       <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
         <div>
           <strong style="font-size:16px; color:#fff;">${ord.firstName || ""} ${ord.lastName || ""}</strong>
-          <div style="font-size:12px; color:#a1a1aa;">📞 ${ord.phone || ""} | ⏰ ${ord.pickupTime || ""}</div>
+          <div style="font-size:12px; color:#a1a1aa;">📞 ${ord.phone || ""} ${ord.pickupTime ? `| ⏰ ${ord.pickupTime}` : ""}</div>
         </div>
         <span style="padding:4px 10px; border-radius:999px; font-size:12px; font-weight:800; background:#27272a; color:#fbbf24;">
           ${getStatusLabel(ord)}
@@ -209,7 +248,7 @@ function renderOrderCard(ord) {
   `;
 }
 
-function bindOrderCardEvents(orders) {
+function bindOrderCardEvents() {
   const container = document.getElementById("orders-container");
   if (!container) return;
 
@@ -240,7 +279,6 @@ function bindOrderCardEvents(orders) {
         });
         openCustomNoteOrderId = null;
       } else if (action === "complete") {
-        // לחיצה על ה-V מעבירה לתיקיית "הוכנו והוזמנו" במקום למחוק!
         await updateDoc(orderRef, {
           status: "completed",
           completedAt: new Date().toISOString(),
