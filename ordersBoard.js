@@ -9,7 +9,7 @@ import {
   onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-const DEFAULT_ADMIN_PASS = "!@#$%^&*12345678";
+const DEFAULT_ADMIN_PASS = "!20!26";
 
 let allOrders = [];
 let activeOrdersSubTab = "active"; // "active" | "completed"
