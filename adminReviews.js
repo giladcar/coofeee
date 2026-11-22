@@ -1,48 +1,183 @@
-import { db, collection, onSnapshot } from "./firebase.js";
+import { db } from "./firebase.js";
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-onSnapshot(collection(db, "orders"), (snapshot) => {
+let allReviews = [];
+let currentAnnouncement = "";
+let showPublicRating = false;
+
+function initAdminReviews() {
   const container = document.getElementById("tab-reviews");
   if (!container) return;
 
-  const ratedOrders = snapshot.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((o) => typeof o.rating === "number" && o.rating >= 1)
-    .sort((a, b) => (b.ratedAt || "").localeCompare(a.ratedAt || ""));
+  onSnapshot(doc(db, "config", "settings"), (snap) => {
+    if (snap.exists()) {
+      const data = snap.data();
+      currentAnnouncement = data.announcement || "";
+      showPublicRating = Boolean(data.showPublicRating);
+      renderReviewsTab();
+    }
+  });
 
-  const avg = ratedOrders.length > 0
-    ? (ratedOrders.reduce((sum, o) => sum + o.rating, 0) / ratedOrders.length).toFixed(1)
-    : "0.0";
+  onSnapshot(collection(db, "reviews"), (snap) => {
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    allReviews = list;
+    renderReviewsTab();
+  });
+}
+
+function getAverageRating() {
+  if (allReviews.length === 0) return "0.0";
+  const sum = allReviews.reduce((acc, r) => acc + (Number(r.rating) || 5), 0);
+  return (sum / allReviews.length).toFixed(1);
+}
+
+function renderReviewsTab() {
+  const container = document.getElementById("tab-reviews");
+  if (!container) return;
+
+  const avg = getAverageRating();
 
   container.innerHTML = `
-    <div class="space-y-4">
-      <div class="bg-stone-900 border border-stone-800 rounded-2xl p-5 flex items-center justify-between">
-        <div>
-          <h2 class="text-lg font-bold text-amber-400">\u2b50 \u05d3\u05d9\u05e8\u05d5\u05d2\u05d9\u05dd \u05d5\u05de\u05e9\u05d5\u05d1\u05d9 \u05dc\u05e7\u05d5\u05d7\u05d5\u05ea</h2>
-          <p class="text-xs text-stone-400">\u05e1\u05d4"\u05db ${ratedOrders.length} \u05d3\u05d9\u05e8\u05d5\u05d2\u05d9\u05dd \u05d4\u05ea\u05e7\u05d1\u05dc\u05d5</p>
+    <div class="space-y-6">
+      <!-- כרטיס ניהול פרסום הודעה ודירוג ללקוחות -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- פרסום הודעה רצה ללקוחות -->
+        <div class="bg-stone-900 border border-stone-800 rounded-2xl p-5 space-y-3">
+          <h3 class="font-bold text-amber-400 text-base">📢 פרסום הודעה בראש אתר הלקוחות</h3>
+          <p class="text-xs text-stone-400">ההודעה תופיע בבאנר בולט בראש המסך של כל הלקוחות בזמן אמת.</p>
+          <input id="admin-announcement-input" type="text" placeholder="לדוגמה: היום מאפים חמים מהתנור עד 14:00!" value="${currentAnnouncement.replace(/"/g, "&quot;")}"
+            class="w-full bg-stone-950 border border-stone-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500" />
+          <div class="flex gap-2">
+            <button id="publish-announcement-btn" type="button"
+              class="flex-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black py-2.5 rounded-xl text-xs cursor-pointer">
+              📢 פרסם הודעה
+            </button>
+            ${
+              currentAnnouncement
+                ? `<button id="clear-announcement-btn" type="button"
+                    class="px-4 py-2.5 rounded-xl bg-red-950/70 hover:bg-red-900 text-red-300 font-bold text-xs cursor-pointer">
+                    הסר הודעה
+                  </button>`
+                : ""
+            }
+          </div>
         </div>
-        <div class="text-left">
-          <div class="text-3xl font-black text-amber-400">${avg} \u2b50</div>
-          <div class="text-xs text-stone-400">\u05de\u05de\u05d5\u05e6\u05e2 \u05db\u05dc\u05dc\u05d9</div>
+
+        <!-- פרסום דירוג ממוצע של כולם ללקוחות -->
+        <div class="bg-stone-900 border border-stone-800 rounded-2xl p-5 flex flex-col justify-between gap-3">
+          <div>
+            <h3 class="font-bold text-amber-400 text-base">⭐ פרסום דירוג הלקוחות באתר</h3>
+            <p class="text-xs text-stone-400 mt-1">
+              מציג ללקוחות בלובי את הציון הממוצע של כל המדרגים ואת הביקורות האחרונות.
+            </p>
+            <div class="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-stone-950 border border-stone-800">
+              <span class="text-amber-400 text-xl font-black">★ ${avg}</span>
+              <span class="text-xs text-stone-400">מתוך 5 (${allReviews.length} דירוגים)</span>
+            </div>
+          </div>
+
+          <button id="toggle-public-rating-btn" type="button"
+            class="w-full py-2.5 rounded-xl font-black text-xs transition cursor-pointer ${
+              showPublicRating
+                ? "bg-emerald-500 hover:bg-emerald-400 text-stone-950"
+                : "bg-stone-800 hover:bg-amber-500 hover:text-stone-950 text-amber-400 border border-amber-500/40"
+            }">
+            ${
+              showPublicRating
+                ? "✅ הדירוג מפורסם כרגע ללקוחות (לחץ להסתרה)"
+                : "🚀 פרסם דירוג ממוצע ללקוחות"
+            }
+          </button>
         </div>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        ${ratedOrders.length === 0 ? `<div class="col-span-full text-center py-10 text-stone-400 bg-stone-900/50 rounded-2xl border border-stone-800">\u05e2\u05d3\u05d9\u05d9\u05df \u05dc\u05d0 \u05d4\u05ea\u05e7\u05d1\u05dc\u05d5 \u05d3\u05d9\u05e8\u05d5\u05d2\u05d9\u05dd \u2615</div>` : ""}
-        ${ratedOrders.map((o) => `
-          <div class="bg-stone-900 border border-stone-800 rounded-2xl p-4 space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="font-bold text-white">${escapeHtml(o.firstName || "\u05dc\u05e7\u05d5\u05d7")} ${escapeHtml(o.lastName || "")}</span>
-              <span class="text-amber-400 font-bold">${"\u2b50".repeat(o.rating)}</span>
-            </div>
-            ${o.reviewComment ? `<p class="text-sm text-stone-200 bg-stone-950 p-3 rounded-xl border border-stone-800">"${escapeHtml(o.reviewComment)}"</p>` : ""}
-            <div class="text-xs text-stone-500">${escapeHtml(o.date || "")} \u2022 ${(o.items || []).map((i) => i.name).join(", ")}</div>
-          </div>
-        `).join("")}
+      <!-- רשימת כל המשובים שהתקבלו -->
+      <div class="bg-stone-900 border border-stone-800 rounded-2xl p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="font-bold text-white text-base">💬 משובים ודירוגים שהתקבלו (${allReviews.length})</h3>
+        </div>
+
+        ${
+          allReviews.length === 0
+            ? `<div class="text-center text-stone-400 text-sm py-8">עדיין לא התקבלו דירוגים מלקוחות ⭐</div>`
+            : `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                ${allReviews
+                  .map((rev) => {
+                    const stars = Number(rev.rating) || 5;
+                    const starsStr = "★".repeat(stars) + "☆".repeat(5 - stars);
+                    const dateStr = rev.createdAt
+                      ? new Date(rev.createdAt).toLocaleString("he-IL", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "";
+                    return `
+                      <div class="bg-stone-950 border border-stone-800 rounded-2xl p-4 flex flex-col justify-between gap-2">
+                        <div>
+                          <div class="flex items-center justify-between gap-2">
+                            <span class="font-bold text-sm text-white">${rev.firstName || "לקוח"} ${rev.lastName || ""}</span>
+                            <span class="text-amber-400 text-sm tracking-wider">${starsStr}</span>
+                          </div>
+                          <div class="text-[11px] text-stone-500 mt-0.5">${dateStr}</div>
+                          ${
+                            rev.comment
+                              ? `<p class="text-xs text-stone-300 mt-2 bg-stone-900/80 p-2.5 rounded-xl border border-stone-800/70">"${rev.comment}"</p>`
+                              : `<p class="text-[11px] text-stone-500 mt-2 italic">ללא הערה כתובה</p>`
+                          }
+                        </div>
+                        <button type="button" data-delete-review="${rev.id}"
+                          class="self-end text-[11px] text-red-400 hover:text-red-300 px-2 py-1 rounded bg-red-950/40 cursor-pointer">
+                          🗑 מחק משוב
+                        </button>
+                      </div>
+                    `;
+                  })
+                  .join("")}
+              </div>`
+        }
       </div>
     </div>
   `;
-});
 
-function escapeHtml(str) {
-  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  document.getElementById("publish-announcement-btn")?.addEventListener("click", async () => {
+    const val = document.getElementById("admin-announcement-input")?.value.trim() || "";
+    await setDoc(doc(db, "config", "settings"), { announcement: val }, { merge: true });
+    alert(val ? "ההודעה פורסמה מיד אצל כל הלקוחות!" : "ההודעה הוסרה.");
+  });
+
+  document.getElementById("clear-announcement-btn")?.addEventListener("click", async () => {
+    await setDoc(doc(db, "config", "settings"), { announcement: "" }, { merge: true });
+  });
+
+  document.getElementById("toggle-public-rating-btn")?.addEventListener("click", async () => {
+    const nextState = !showPublicRating;
+    await setDoc(
+      doc(db, "config", "settings"),
+      {
+        showPublicRating: nextState,
+        publicRatingAverage: avg,
+        publicRatingCount: allReviews.length,
+      },
+      { merge: true }
+    );
+  });
+
+  container.querySelectorAll("button[data-delete-review]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-delete-review");
+      if (!id || !confirm("למחוק משוב זה?")) return;
+      await deleteDoc(doc(db, "reviews", id));
+    });
+  });
 }
+
+initAdminReviews();
