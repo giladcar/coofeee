@@ -12,7 +12,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // סיסמת ברירת מחדל למנהל (ניתן לשנות גם ב-Firestore תחת config/settings -> adminPassword)
-const DEFAULT_ADMIN_PASS = "1234";
+const DEFAULT_ADMIN_PASS = "!20!26";
 
 let allOrders = [];
 let activeOrdersSubTab = "active"; // "active" | "completed"
@@ -60,7 +60,7 @@ function initAdminAuth() {
       showAdminDashboard();
     } else {
       if (errorEl) {
-        errorEl.textContent = "סיסמה שגויה. נסה שוב (ברירת מחדל: 1234).";
+        errorEl.textContent = "סיסמא שגויה נסה שוב.";
         errorEl.classList.remove("hidden");
       }
     }
