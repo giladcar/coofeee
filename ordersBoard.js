@@ -2,6 +2,7 @@ import { db } from "./firebase.js";
 import {
   collection,
   doc,
+  getDoc,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -10,26 +11,104 @@ import {
   orderBy,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+// סיסמת ברירת מחדל למנהל (ניתן לשנות גם ב-Firestore תחת config/settings -> adminPassword)
+const DEFAULT_ADMIN_PASS = "1234";
+
 let allOrders = [];
 let activeOrdersSubTab = "active"; // "active" | "completed"
 let openCustomNoteOrderId = null;
 let paymentSettings = { bitLink: "", payboxLink: "" };
 
-export function initOrdersBoard() {
-  const container = document.getElementById("orders-container");
-  if (!container) return;
+// --- 1. ניהול מסך התחברות מנהל ---
+function initAdminAuth() {
+  const loginScreen = document.getElementById("login-screen");
+  const adminApp = document.getElementById("admin-app");
+  const loginForm = document.getElementById("admin-login-form");
+  const passInput = document.getElementById("admin-password");
+  const errorEl = document.getElementById("login-error");
 
-  // האזנה לקישורי תשלום קיימים
+  const showAdminDashboard = () => {
+    if (loginScreen) loginScreen.classList.add("hidden");
+    if (adminApp) adminApp.classList.remove("hidden");
+    startClock();
+    startOrdersListener();
+  };
+
+  if (localStorage.getItem("coffee_admin_auth") === "true") {
+    showAdminDashboard();
+    return;
+  }
+
+  loginForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (errorEl) errorEl.classList.add("hidden");
+
+    const entered = (passInput?.value || "").trim();
+    let expectedPass = DEFAULT_ADMIN_PASS;
+
+    try {
+      const snap = await getDoc(doc(db, "config", "settings"));
+      if (snap.exists() && snap.data().adminPassword) {
+        expectedPass = String(snap.data().adminPassword).trim();
+      }
+    } catch (err) {
+      console.warn("Using default admin password:", err);
+    }
+
+    if (entered === expectedPass || entered === DEFAULT_ADMIN_PASS) {
+      localStorage.setItem("coffee_admin_auth", "true");
+      showAdminDashboard();
+    } else {
+      if (errorEl) {
+        errorEl.textContent = "סיסמה שגויה. נסה שוב (ברירת מחדל: 1234).";
+        errorEl.classList.remove("hidden");
+      }
+    }
+  });
+}
+
+function startClock() {
+  const clockEl = document.getElementById("live-clock");
+  if (!clockEl) return;
+  const update = () => {
+    const now = new Date();
+    clockEl.textContent = now.toLocaleString("he-IL", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
+  update();
+  setInterval(update, 1000);
+}
+
+// --- 2. האזנה להזמנות וקישורי תשלום ---
+function startOrdersListener() {
   onSnapshot(doc(db, "config", "settings"), (snap) => {
     if (snap.exists()) {
       const data = snap.data();
       paymentSettings.bitLink = data.bitLink || "";
       paymentSettings.payboxLink = data.payboxLink || "";
+
+      const badge = document.getElementById("cart-status-badge");
+      if (badge) {
+        if (data.isCartClosed) {
+          badge.textContent = "🔴 העגלה סגורה להזמנות";
+          badge.className =
+            "px-3 py-1 rounded-full text-xs font-bold bg-red-900/60 text-red-300 border border-red-700";
+        } else {
+          badge.textContent = "🟢 העגלה פתוחה להזמנות";
+          badge.className =
+            "px-3 py-1 rounded-full text-xs font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700";
+        }
+      }
       renderOrdersBoard();
     }
   });
 
-  // האזנה להזמנות
   const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
   onSnapshot(q, (snap) => {
     allOrders = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -62,59 +141,66 @@ function getStatusLabel(ord) {
 }
 
 function renderOrdersBoard() {
-  const container = document.getElementById("orders-container");
-  if (!container) return;
+  const grid = document.getElementById("orders-grid");
+  if (!grid) return;
+
+  // מוודאים שה-grid יתפרס לרוחב מלא
+  grid.className = "space-y-4";
 
   const activeList = allOrders.filter((o) =>
     ["pending", "preparing", "ready", "out_for_delivery", "custom"].includes(o.status)
   );
   const completedList = allOrders.filter((o) => o.status === "completed");
-
   const listToShow = activeOrdersSubTab === "active" ? activeList : completedList;
 
-  container.innerHTML = `
-    <!-- אזור הזנת קישורי Bit ו-PayBox -->
-    <div style="background:#18181b; border:1px solid #27272a; border-radius:16px; padding:14px; margin-bottom:16px;">
-      <div style="font-weight:800; color:#fbbf24; font-size:14px; margin-bottom:10px;">
+  grid.innerHTML = `
+    <!-- הגדרת קישורי Bit ו-PayBox -->
+    <div class="bg-stone-900 border border-stone-800 rounded-2xl p-4">
+      <div class="font-bold text-amber-400 text-sm mb-2.5">
         💳 קישורי תשלום ללקוחות (Bit / PayBox)
       </div>
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; align-items:center;">
-        <input id="admin-bit-link" type="url" placeholder="הדבק קישור לתשלום ב-Bit..." value="${paymentSettings.bitLink}" style="padding:9px 12px; border-radius:10px; border:1px solid #3f3f46; background:#09090b; color:#fff; font-size:13px; direction:ltr;" />
-        <input id="admin-paybox-link" type="url" placeholder="הדבק קישור לתשלום ב-PayBox..." value="${paymentSettings.payboxLink}" style="padding:9px 12px; border-radius:10px; border:1px solid #3f3f46; background:#09090b; color:#fff; font-size:13px; direction:ltr;" />
-        <button id="save-payment-links-btn" style="padding:10px 16px; border-radius:10px; background:#f59e0b; color:#09090b; font-weight:900; border:none; font-size:13px; cursor:pointer;">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+        <input id="admin-bit-link" type="url" dir="ltr" placeholder="הדבק קישור לתשלום ב-Bit..." value="${paymentSettings.bitLink}"
+          class="bg-stone-950 border border-stone-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+        <input id="admin-paybox-link" type="url" dir="ltr" placeholder="הדבק קישור לתשלום ב-PayBox..." value="${paymentSettings.payboxLink}"
+          class="bg-stone-950 border border-stone-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+        <button id="save-payment-links-btn" type="button"
+          class="bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-xl px-4 py-2 text-sm transition cursor-pointer">
           💾 שמור קישורי תשלום
         </button>
       </div>
     </div>
 
     <!-- לשוניות: הזמנות פעילות / הוכנו והוזמנו -->
-    <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;">
-      <button id="tab-active-orders" style="padding:10px 18px; border-radius:12px; font-weight:800; border:1px solid ${
-        activeOrdersSubTab === "active" ? "#f59e0b" : "#3f3f46"
-      }; background:${
-    activeOrdersSubTab === "active" ? "#f59e0b" : "#18181b"
-  }; color:${activeOrdersSubTab === "active" ? "#09090b" : "#f4f4f5"}; cursor:pointer;">
+    <div class="flex flex-wrap gap-2">
+      <button id="tab-active-orders" type="button"
+        class="px-4 py-2.5 rounded-xl text-sm font-black border transition cursor-pointer ${
+          activeOrdersSubTab === "active"
+            ? "bg-amber-500 text-stone-950 border-amber-400"
+            : "bg-stone-900 text-stone-300 border-stone-800"
+        }">
         🔥 הזמנות פעילות (${activeList.length})
       </button>
-      <button id="tab-completed-orders" style="padding:10px 18px; border-radius:12px; font-weight:800; border:1px solid ${
-        activeOrdersSubTab === "completed" ? "#10b981" : "#3f3f46"
-      }; background:${
-    activeOrdersSubTab === "completed" ? "#10b981" : "#18181b"
-  }; color:${activeOrdersSubTab === "completed" ? "#09090b" : "#f4f4f5"}; cursor:pointer;">
+      <button id="tab-completed-orders" type="button"
+        class="px-4 py-2.5 rounded-xl text-sm font-black border transition cursor-pointer ${
+          activeOrdersSubTab === "completed"
+            ? "bg-emerald-500 text-stone-950 border-emerald-400"
+            : "bg-stone-900 text-stone-300 border-stone-800"
+        }">
         📦 הוכנו והוזמנו (${completedList.length})
       </button>
     </div>
 
     ${
       listToShow.length === 0
-        ? `<div style="background:#18181b; border:1px solid #27272a; border-radius:16px; padding:32px; text-align:center; color:#a1a1aa;">
+        ? `<div class="bg-stone-900 border border-stone-800 rounded-2xl p-10 text-center text-stone-400">
             ${
               activeOrdersSubTab === "active"
                 ? "אין הזמנות פעילות כרגע ☕"
                 : "תיקיית 'הוכנו והוזמנו' ריקה עדיין 📦"
             }
           </div>`
-        : `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px;">
+        : `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             ${listToShow.map((ord) => renderOrderCard(ord)).join("")}
           </div>`
     }
@@ -128,7 +214,7 @@ function renderOrdersBoard() {
       { bitLink: bitVal, payboxLink: payboxVal },
       { merge: true }
     );
-    alert("קישורי Bit ו-PayBox נשמרו בהצלחה ומופיעים כעת אצל הלקוחות!");
+    alert("קישורי Bit ו-PayBox נשמרו בהצלחה ומופיעים אצל הלקוחות!");
   });
 
   document.getElementById("tab-active-orders")?.addEventListener("click", () => {
@@ -149,10 +235,10 @@ function renderOrderCard(ord) {
   const itemsHtml = (ord.items || [])
     .map(
       (it) => `
-      <div style="padding:4px 0; border-bottom:1px solid #27272a;">
-        <strong style="color:#fbbf24;">${it.quantity}x</strong> ${it.name}
-        ${it.customizations ? `<span style="color:#a1a1aa; font-size:12px;"> (${it.customizations})</span>` : ""}
-        ${it.notes ? `<div style="color:#fcd34d; font-size:12px;">📝 ${it.notes}</div>` : ""}
+      <div class="py-1 border-b border-stone-800/80 text-sm">
+        <strong class="text-amber-400">${it.quantity}x</strong> ${it.name}
+        ${it.customizations ? `<span class="text-stone-400 text-xs"> (${it.customizations})</span>` : ""}
+        ${it.notes ? `<div class="text-amber-300 text-xs">📝 ${it.notes}</div>` : ""}
       </div>`
     )
     .join("");
@@ -160,85 +246,88 @@ function renderOrderCard(ord) {
   const isCompleted = ord.status === "completed";
 
   return `
-    <div style="background:#18181b; border:1px solid ${
-      ord.status === "ready" || ord.status === "out_for_delivery" ? "#10b981" : "#27272a"
-    }; border-radius:18px; padding:16px; display:flex; flex-direction:column; gap:10px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-        <div>
-          <strong style="font-size:16px; color:#fff;">${ord.firstName || ""} ${ord.lastName || ""}</strong>
-          <div style="font-size:12px; color:#a1a1aa;">📞 ${ord.phone || ""} ${ord.pickupTime ? `| ⏰ ${ord.pickupTime}` : ""}</div>
+    <div class="bg-stone-900 border ${
+      ord.status === "ready" || ord.status === "out_for_delivery"
+        ? "border-emerald-500"
+        : "border-stone-800"
+    } rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg">
+      <div class="space-y-2.5">
+        <div class="flex justify-between items-start gap-2">
+          <div>
+            <div class="font-bold text-base text-white">${ord.firstName || ""} ${ord.lastName || ""}</div>
+            <div class="text-xs text-stone-400">📞 ${ord.phone || ""} ${ord.pickupTime ? `| ⏰ ${ord.pickupTime}` : ""}</div>
+          </div>
+          <span class="px-2.5 py-1 rounded-full text-xs font-black bg-stone-800 text-amber-400">
+            ${getStatusLabel(ord)}
+          </span>
         </div>
-        <span style="padding:4px 10px; border-radius:999px; font-size:12px; font-weight:800; background:#27272a; color:#fbbf24;">
-          ${getStatusLabel(ord)}
-        </span>
-      </div>
 
-      <div style="padding:8px 10px; border-radius:10px; font-size:12px; font-weight:700; background:${
-        isDelivery ? "rgba(245, 158, 11, 0.15)" : "rgba(63, 63, 70, 0.4)"
-      }; color:${isDelivery ? "#fcd34d" : "#e4e4e7"};">
-        ${
+        <div class="p-2.5 rounded-xl text-xs font-bold ${
           isDelivery
-            ? `🛵 משלוח לכתובת: ${ord.deliveryAddress || "לא צוינה כתובת"}`
-            : "☕ לקחת במקום"
-        }
-      </div>
+            ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+            : "bg-stone-800/70 text-stone-200"
+        }">
+          ${
+            isDelivery
+              ? `🛵 משלוח לכתובת: ${ord.deliveryAddress || "לא צוינה כתובת"}`
+              : "☕ לקחת במקום"
+          }
+        </div>
 
-      <div style="font-size:13px; color:#f4f4f5;">
-        ${itemsHtml}
-      </div>
-
-      <div style="font-weight:900; color:#fbbf24; font-size:14px;">
-        סה״כ: ₪${ord.totalPrice || 0}
+        <div>${itemsHtml}</div>
+        <div class="font-black text-amber-400 text-sm">סה״כ: ₪${ord.totalPrice || 0}</div>
       </div>
 
       ${
         !isCompleted
           ? `
-        <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; margin-top:4px;">
-          <button data-action="preparing" data-id="${ord.id}" style="padding:8px; border-radius:10px; border:1px solid #3f3f46; background:#27272a; color:#fff; font-weight:700; font-size:12px; cursor:pointer;">
-            ☕ בהכנה
-          </button>
-          <button data-action="ready" data-id="${ord.id}" style="padding:8px; border-radius:10px; border:1px solid #10b981; background:rgba(16,185,129,0.2); color:#6ee7b7; font-weight:700; font-size:12px; cursor:pointer;">
-            ✅ מוכן
-          </button>
-          <button data-action="delivery" data-id="${ord.id}" style="padding:8px; border-radius:10px; border:1px solid #3b82f6; background:rgba(59,130,246,0.2); color:#93c5fd; font-weight:700; font-size:12px; cursor:pointer;">
-            🛵 להזמין שליח
-          </button>
-          <button data-action="toggle-custom" data-id="${ord.id}" style="padding:8px; border-radius:10px; border:1px solid #a855f7; background:rgba(168,85,247,0.2); color:#d8b4fe; font-weight:700; font-size:12px; cursor:pointer;">
-            ✏️ אחר
-          </button>
-        </div>
-
-        ${
-          openCustomNoteOrderId === ord.id
-            ? `
-          <div style="display:flex; gap:6px; margin-top:4px;">
-            <input id="custom-msg-${ord.id}" type="text" placeholder="כתוב הודעה ללקוח..." value="${
-                ord.customStatusMessage || ""
-              }" style="flex:1; padding:8px 10px; border-radius:10px; border:1px solid #52525b; background:#09090b; color:#fff; font-size:12px;" />
-            <button data-action="save-custom" data-id="${ord.id}" style="padding:8px 12px; border-radius:10px; background:#a855f7; color:#fff; font-weight:800; border:none; font-size:12px; cursor:pointer;">
-              שלח
+        <div class="space-y-2 pt-2 border-t border-stone-800">
+          <div class="grid grid-cols-2 gap-1.5">
+            <button type="button" data-action="preparing" data-id="${ord.id}" class="py-2 px-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-white font-bold text-xs cursor-pointer">
+              ☕ בהכנה
+            </button>
+            <button type="button" data-action="ready" data-id="${ord.id}" class="py-2 px-2 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 font-bold text-xs cursor-pointer">
+              ✅ מוכן
+            </button>
+            <button type="button" data-action="delivery" data-id="${ord.id}" class="py-2 px-2 rounded-xl bg-blue-950 hover:bg-blue-900 text-blue-300 border border-blue-700/60 font-bold text-xs cursor-pointer">
+              🛵 להזמין שליח
+            </button>
+            <button type="button" data-action="toggle-custom" data-id="${ord.id}" class="py-2 px-2 rounded-xl bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-700/60 font-bold text-xs cursor-pointer">
+              ✏️ אחר
             </button>
           </div>
-        `
-            : ""
-        }
 
-        <div style="display:flex; gap:6px; margin-top:6px; border-top:1px solid #27272a; padding-top:8px;">
-          <button data-action="complete" data-id="${ord.id}" style="flex:1; padding:9px; border-radius:10px; background:#10b981; color:#09090b; font-weight:900; border:none; font-size:13px; cursor:pointer;">
-            ✔ העבר להוכנו והוזמנו
-          </button>
-          <button data-action="cancel" data-id="${ord.id}" style="padding:9px 12px; border-radius:10px; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #7f1d1d; font-weight:700; font-size:12px; cursor:pointer;">
-            ✕ ביטול
-          </button>
+          ${
+            openCustomNoteOrderId === ord.id
+              ? `
+            <div class="flex gap-1.5">
+              <input id="custom-msg-${ord.id}" type="text" placeholder="כתוב הודעה ללקוח..." value="${
+                  ord.customStatusMessage || ""
+                }" class="flex-1 px-3 py-1.5 rounded-xl border border-stone-600 bg-stone-950 text-white text-xs" />
+              <button type="button" data-action="save-custom" data-id="${ord.id}" class="px-3 py-1.5 rounded-xl bg-purple-600 text-white font-bold text-xs cursor-pointer">
+                שלח
+              </button>
+            </div>
+          `
+              : ""
+          }
+
+          <div class="flex gap-1.5">
+            <button type="button" data-action="complete" data-id="${ord.id}" class="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-black text-xs cursor-pointer">
+              ✔ העבר להוכנו והוזמנו
+            </button>
+            <button type="button" data-action="cancel" data-id="${ord.id}" class="px-3 py-2.5 rounded-xl bg-red-950/70 hover:bg-red-900 text-red-300 text-xs font-bold cursor-pointer">
+              ✕
+            </button>
+          </div>
         </div>
       `
           : `
-        <div style="display:flex; gap:6px; margin-top:4px; border-top:1px solid #27272a; padding-top:8px;">
-          <button data-action="restore" data-id="${ord.id}" style="flex:1; padding:8px; border-radius:10px; background:#27272a; color:#e4e4e7; border:1px solid #3f3f46; font-weight:700; font-size:12px; cursor:pointer;">
+        <div class="flex gap-1.5 pt-2 border-t border-stone-800">
+          <button type="button" data-action="restore" data-id="${ord.id}" class="flex-1 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs cursor-pointer">
             ↩ החזר לפעילות
           </button>
-          <button data-action="delete-permanent" data-id="${ord.id}" style="padding:8px 12px; border-radius:10px; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #7f1d1d; font-size:12px; cursor:pointer;">
+          <button type="button" data-action="delete-permanent" data-id="${ord.id}" class="px-3 py-2 rounded-xl bg-red-950/60 text-red-300 text-xs cursor-pointer">
             🗑
           </button>
         </div>
@@ -249,10 +338,10 @@ function renderOrderCard(ord) {
 }
 
 function bindOrderCardEvents() {
-  const container = document.getElementById("orders-container");
-  if (!container) return;
+  const grid = document.getElementById("orders-grid");
+  if (!grid) return;
 
-  container.querySelectorAll("button[data-action]").forEach((btn) => {
+  grid.querySelectorAll("button[data-action]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const action = btn.getAttribute("data-action");
       const id = btn.getAttribute("data-id");
@@ -295,3 +384,6 @@ function bindOrderCardEvents() {
     });
   });
 }
+
+// הפעלה מיידית
+initAdminAuth();
