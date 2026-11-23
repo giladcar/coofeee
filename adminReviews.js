@@ -24,13 +24,22 @@ function initAdminReviews() {
     }
   });
 
-  onSnapshot(collection(db, "reviews"), (snap) => {
+  onSnapshot(collection(db, "reviews"), async (snap) => {
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
     allReviews = list;
     renderReviewsTab();
+
+    // מסנכרן אוטומטית את הממוצע והכמות למסמך ההגדרות בזמן אמת
+    await setDoc(
+      doc(db, "config", "settings"),
+      {
+        publicRatingAverage: getAverageRating(),
+        publicRatingCount: allReviews.length,
+      },
+      { merge: true }
+    );
   });
-}
 
 function getAverageRating() {
   if (allReviews.length === 0) return "0.0";
