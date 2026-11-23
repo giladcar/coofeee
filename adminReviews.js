@@ -185,6 +185,20 @@ function renderReviewsTab() {
       const id = btn.getAttribute("data-delete-review");
       if (!id || !confirm("למחוק משוב זה?")) return;
       await deleteDoc(doc(db, "reviews", id));
+	  const remaining = allReviews.filter((r) => r.id !== id);
+const nextCount = remaining.length;
+const nextAvg =
+  nextCount > 0
+    ? (remaining.reduce((acc, r) => acc + (Number(r.rating) || 5), 0) / nextCount).toFixed(1)
+    : "0.0";
+await setDoc(
+  doc(db, "config", "settings"),
+  {
+    publicRatingAverage: nextAvg,
+    publicRatingCount: nextCount,
+  },
+  { merge: true }
+);
     });
   });
 }
