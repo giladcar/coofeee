@@ -1,50 +1,80 @@
-import { db } from "./firebase.js";
 import {
+  db,
+  auth,
   collection,
   doc,
   setDoc,
   deleteDoc,
   onSnapshot,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  onAuthStateChanged,
+} from "./firebase.js?v=40";
 
 let allReviews = [];
 let currentAnnouncement = "";
 let showPublicRating = false;
-
-function initAdminReviews() {
-  const container = document.getElementById("tab-reviews");
-  if (!container) return;
-
-  onSnapshot(doc(db, "config", "settings"), (snap) => {
-    if (snap.exists()) {
-      const data = snap.data();
-      currentAnnouncement = data.announcement || "";
-      showPublicRating = Boolean(data.showPublicRating);
-      renderReviewsTab();
-    }
-  });
-
-  onSnapshot(collection(db, "reviews"), async (snap) => {
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-    allReviews = list;
-    renderReviewsTab();
-
-    // מסנכרן אוטומטית את הממוצע והכמות למסמך ההגדרות בזמן אמת
-    await setDoc(
-      doc(db, "config", "settings"),
-      {
-        publicRatingAverage: getAverageRating(),
-        publicRatingCount: allReviews.length,
-      },
-      { merge: true }
-    );
-  });
+let unsubSettings = null;
+let unsubReviews = null;
 
 function getAverageRating() {
   if (allReviews.length === 0) return "0.0";
   const sum = allReviews.reduce((acc, r) => acc + (Number(r.rating) || 5), 0);
   return (sum / allReviews.length).toFixed(1);
+}
+
+function startListeners() {
+  if (unsubSettings) unsubSettings();
+  if (unsubReviews) unsubReviews();
+
+  unsubSettings = onSnapshot(
+    doc(db, "config", "settings"),
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        currentAnnouncement = data.announcement || "";
+        showPublicRating = Boolean(data.showPublicRating);
+        renderReviewsTab();
+      }
+    },
+    (err) => {
+      renderError(`שגיאה בטעינת הגדרות: ${err.message}`);
+    }
+  );
+
+  unsubReviews = onSnapshot(
+    collection(db, "reviews"),
+    async (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+      allReviews = list;
+      renderReviewsTab();
+
+      try {
+        await setDoc(
+          doc(db, "config", "settings"),
+          {
+            publicRatingAverage: getAverageRating(),
+            publicRatingCount: allReviews.length,
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        // אם אין הרשאת כתיבה עדיין, לא מפיל את התצוגה
+      }
+    },
+    (err) => {
+      renderError(`שגיאה בטעינת משובים (${err.code}): ${err.message}`);
+    }
+  );
+}
+
+function renderError(msg) {
+  const container = document.getElementById("tab-reviews");
+  if (!container) return;
+  container.innerHTML = `
+    <div class="bg-red-950/70 border border-red-600 rounded-2xl p-5 text-red-200 text-sm font-bold text-center">
+      ⚠️ ${msg}
+    </div>
+  `;
 }
 
 function renderReviewsTab() {
@@ -55,9 +85,7 @@ function renderReviewsTab() {
 
   container.innerHTML = `
     <div class="space-y-6">
-      <!-- כרטיס ניהול פרסום הודעה ודירוג ללקוחות -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- פרסום הודעה רצה ללקוחות -->
         <div class="bg-stone-900 border border-stone-800 rounded-2xl p-5 space-y-3">
           <h3 class="font-bold text-amber-400 text-base">📢 פרסום הודעה בראש אתר הלקוחות</h3>
           <p class="text-xs text-stone-400">ההודעה תופיע בבאנר בולט בראש המסך של כל הלקוחות בזמן אמת.</p>
@@ -79,7 +107,6 @@ function renderReviewsTab() {
           </div>
         </div>
 
-        <!-- פרסום דירוג ממוצע של כולם ללקוחות -->
         <div class="bg-stone-900 border border-stone-800 rounded-2xl p-5 flex flex-col justify-between gap-3">
           <div>
             <h3 class="font-bold text-amber-400 text-base">⭐ פרסום דירוג הלקוחות באתר</h3>
@@ -107,7 +134,6 @@ function renderReviewsTab() {
         </div>
       </div>
 
-      <!-- רשימת כל המשובים שהתקבלו -->
       <div class="bg-stone-900 border border-stone-800 rounded-2xl p-5 space-y-4">
         <div class="flex items-center justify-between">
           <h3 class="font-bold text-white text-base">💬 משובים ודירוגים שהתקבלו (${allReviews.length})</h3>
@@ -185,22 +211,12 @@ function renderReviewsTab() {
       const id = btn.getAttribute("data-delete-review");
       if (!id || !confirm("למחוק משוב זה?")) return;
       await deleteDoc(doc(db, "reviews", id));
-	  const remaining = allReviews.filter((r) => r.id !== id);
-const nextCount = remaining.length;
-const nextAvg =
-  nextCount > 0
-    ? (remaining.reduce((acc, r) => acc + (Number(r.rating) || 5), 0) / nextCount).toFixed(1)
-    : "0.0";
-await setDoc(
-  doc(db, "config", "settings"),
-  {
-    publicRatingAverage: nextAvg,
-    publicRatingCount: nextCount,
-  },
-  { merge: true }
-);
     });
   });
 }
 
-initAdminReviews();
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    startListeners();
+  }
+});
