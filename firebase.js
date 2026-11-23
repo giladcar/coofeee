@@ -14,6 +14,12 @@ import {
   where,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyCiSZP7LGtAq9S63IZt2KOhCK6HizHUbTQ",
@@ -27,6 +33,7 @@ export const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const auth = getAuth(app);
 
 export {
   collection,
@@ -40,5 +47,8 @@ export {
   query,
   orderBy,
   where,
-  serverTimestamp
+  serverTimestamp,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut
 };

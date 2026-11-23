@@ -25,17 +25,24 @@
       <div class="text-center mb-6">
         <div class="text-5xl mb-3">☕</div>
         <h1 class="text-2xl font-bold text-amber-400">פאנל בריסטה וניהול</h1>
-        <p class="text-stone-400 text-sm mt-1">התחברות למערכת ניהול עגלת הקפה</p>
+        <p class="text-stone-400 text-sm mt-1">התחברות מאובטחת למערכת ניהול עגלת הקפה</p>
       </div>
       <form id="admin-login-form" class="space-y-4">
         <div>
-          <label class="block text-sm text-stone-300 mb-1">סיסמת גישה למנהל</label>
+          <label class="block text-sm text-stone-300 mb-1">אימייל מנהל</label>
+          <input type="email" id="admin-email" required
+            class="w-full bg-stone-800 border border-stone-700 rounded-xl px-4 py-3 text-white text-left focus:outline-none focus:border-amber-500"
+            dir="ltr"
+            placeholder="admin@coffee.com" />
+        </div>
+        <div>
+          <label class="block text-sm text-stone-300 mb-1">סיסמת מנהל</label>
           <input type="password" id="admin-password" required
             class="w-full bg-stone-800 border border-stone-700 rounded-xl px-4 py-3 text-white text-center tracking-widest focus:outline-none focus:border-amber-500"
             placeholder="••••••••••••" />
         </div>
-        <p id="login-error" class="text-red-400 text-sm hidden"></p>
-        <button type="submit"
+        <p id="login-error" class="text-red-400 text-sm text-center hidden"></p>
+        <button type="submit" id="login-submit-btn"
           class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl transition cursor-pointer">
           כניסה למערכת
         </button>
@@ -78,7 +85,7 @@
         <button type="button" data-tab="clients" onclick="window.openAdminTab('clients')" class="tab-btn px-4 py-2.5 rounded-xl bg-stone-800 border border-stone-700 text-sm font-bold transition cursor-pointer">
           👥 לקוחות ופרופילים
         </button>
-        <button type="button" id="logout-btn" onclick="localStorage.removeItem('coffee_admin_auth'); location.reload();" class="mr-auto px-4 py-2.5 rounded-xl bg-red-950/60 hover:bg-red-900 border border-red-800/60 text-red-200 text-sm font-bold transition cursor-pointer">
+        <button type="button" id="logout-btn" class="mr-auto px-4 py-2.5 rounded-xl bg-red-950/60 hover:bg-red-900 border border-red-800/60 text-red-200 text-sm font-bold transition cursor-pointer">
           יציאה
         </button>
       </nav>
@@ -127,11 +134,58 @@
     };
   </script>
 
+  <!-- לוגיקת התחברות Firebase Auth -->
+  <script type="module">
+    import { auth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "./firebase.js?v=35";
+
+    const loginScreen = document.getElementById("login-screen");
+    const adminApp = document.getElementById("admin-app");
+    const loginForm = document.getElementById("admin-login-form");
+    const loginError = document.getElementById("login-error");
+    const submitBtn = document.getElementById("login-submit-btn");
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        loginScreen.classList.add("hidden");
+        adminApp.classList.remove("hidden");
+      } else {
+        loginScreen.classList.remove("hidden");
+        adminApp.classList.add("hidden");
+      }
+    });
+
+    loginForm?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      loginError.classList.add("hidden");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "מתחבר...";
+
+      const email = document.getElementById("admin-email").value.trim();
+      const password = document.getElementById("admin-password").value;
+
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (err) {
+        loginError.textContent = "אימייל או סיסמה שגויים. ודא שהמשתמש קיים ב-Firebase Authentication.";
+        loginError.classList.remove("hidden");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "כניסה למערכת";
+      }
+    });
+
+    document.getElementById("logout-btn")?.addEventListener("click", async () => {
+      await signOut(auth);
+      localStorage.removeItem("coffee_admin_auth");
+      location.reload();
+    });
+  </script>
+
   <!-- טעינת מודולים עם פרמטר גרסה למניעת Cache -->
-  <script type="module" src="./ordersBoard.js?v=15"></script>
-  <script type="module" src="./revenueFix.js?v=15"></script>
-  <script type="module" src="./menuManager.js?v=15"></script>
-  <script type="module" src="./clientsTab.js?v=15"></script>
-  <script type="module" src="./adminReviews.js?v=30"></script>
+  <script type="module" src="./ordersBoard.js?v=35"></script>
+  <script type="module" src="./revenueFix.js?v=35"></script>
+  <script type="module" src="./menuManager.js?v=35"></script>
+  <script type="module" src="./clientsTab.js?v=35"></script>
+  <script type="module" src="./adminReviews.js?v=35"></script>
 </body>
 </html>
