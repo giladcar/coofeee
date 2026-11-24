@@ -3,17 +3,26 @@ import {
   auth,
   collection,
   doc,
+  setDoc,
   updateDoc,
   deleteDoc,
   onSnapshot,
   onAuthStateChanged,
-} from "./firebase.js?v=60";
+} from "./firebase.js?v=65";
 
 let allOrders = [];
+let openCustomNoteOrderId = null;
+let paymentSettings = { bitLink: "", payboxLink: "" };
+let knownOrderIds = new Set();
+let isFirstOrdersLoad = true;
+let clockInterval = null;
+let unsubSettings = null;
 let unsubOrders = null;
 
-// ניגון צליל התראה להזמנה חדשה
-function playNewOrderSound() {
+function triggerAdminNotification(title, body) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification(title, { body });
+  }
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
@@ -32,6 +41,30 @@ function playNewOrderSound() {
   }
 }
 
+function initAdminDashboard() {
+  startClock();
+  startOrdersListener();
+}
+
+function startClock() {
+  const clockEl = document.getElementById("live-clock");
+  if (!clockEl) return;
+  if (clockInterval) clearInterval(clockInterval);
+  const update = () => {
+    const now = new Date();
+    clockEl.textContent = now.toLocaleString("he-IL", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
+  update();
+  clockInterval = setInterval(update, 1000);
+}
+
 // שליחת עדכון סטטוס מותאם אישית ללקוח
 window.sendCustomOrderStatus = async (orderId) => {
   const input = document.getElementById(`custom-msg-${orderId}`);
@@ -44,6 +77,7 @@ window.sendCustomOrderStatus = async (orderId) => {
     status: "custom",
     customStatusMessage: msg,
   });
+  openCustomNoteOrderId = null;
 };
 
 // שינוי סטטוס הזמנה
@@ -54,6 +88,7 @@ window.changeOrderStatus = async (orderId, newStatus) => {
   await updateDoc(doc(db, "orders", orderId), {
     status: newStatus,
     ...(newStatus !== "custom" ? { customStatusMessage: "" } : {}),
+    ...(newStatus === "completed" ? { completedAt: new Date().toISOString() } : {}),
   });
 };
 
@@ -75,13 +110,13 @@ function renderOrdersBoard() {
   if (!grid) return;
 
   const activeStatuses = ["pending", "preparing", "ready", "out_for_delivery", "custom"];
-  const activeOrders = allOrders.filter((o) => activeStatuses.includes(o.status));
-  const archiveOrders = allOrders.filter((o) => !activeStatuses.includes(o.status)).slice(0, 15);
+  const activeOrders = allOrders.filter((o) => activeStatuses.includes(o.status || "pending"));
+  const archiveOrders = allOrders.filter((o) => !activeStatuses.includes(o.status || "pending")).slice(0, 20);
 
-  if (activeOrders.length === 0 && archiveOrders.length === 0) {
-    grid.innerHTML = `<div class="bg-stone-900 border border-stone-800 rounded-2xl p-10 text-center text-stone-400">אין הזמנות כרגע ☕</div>`;
-    return;
-  }
+  const notifGranted =
+    typeof window !== "undefined" &&
+    "Notification" in window &&
+    Notification.permission === "granted";
 
   const renderCard = (ord, isArchive = false) => {
     const isDelivery = ord.orderType === "delivery";
@@ -231,6 +266,34 @@ function renderOrdersBoard() {
   };
 
   grid.innerHTML = `
+    <!-- הגדרת קישורי Bit ו-PayBox + כפתור התראות -->
+    <div class="bg-stone-900 border border-stone-800 rounded-2xl p-4 space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="font-bold text-amber-400 text-sm">
+          💳 קישורי תשלום ללקוחות (Bit / PayBox)
+        </span>
+        <button id="enable-admin-notifs-btn" type="button"
+          class="px-3.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+            notifGranted
+              ? "bg-emerald-950/60 text-emerald-300 border-emerald-700"
+              : "bg-stone-950 text-amber-400 border-amber-500/40 hover:bg-amber-500/20"
+          }">
+          ${notifGranted ? "🔔 התראות לטלפון פעילות" : "🔕 הפעל התראות לטלפון"}
+        </button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+        <input id="admin-bit-link" type="url" dir="ltr" placeholder="הדבק קישור לתשלום ב-Bit..." value="${paymentSettings.bitLink}"
+          class="bg-stone-950 border border-stone-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+        <input id="admin-paybox-link" type="url" dir="ltr" placeholder="הדבק קישור לתשלום ב-PayBox..." value="${paymentSettings.payboxLink}"
+          class="bg-stone-950 border border-stone-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+        <button id="save-payment-links-btn" type="button"
+          class="bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-xl px-4 py-2 text-sm transition cursor-pointer">
+          💾 שמור קישורי תשלום
+        </button>
+      </div>
+    </div>
+
+    <!-- הזמנות פעילות -->
     <div class="space-y-4">
       <h2 class="text-lg font-black text-amber-400">🔥 הזמנות פעילות (${activeOrders.length})</h2>
       ${
@@ -240,38 +303,95 @@ function renderOrdersBoard() {
       }
     </div>
 
+    <!-- ארכיון: הזמנות אחרונות שהושלמו / בוטלו -->
     ${
       archiveOrders.length > 0
         ? `
       <div class="space-y-4 pt-6 border-t border-stone-800">
-        <h2 class="text-base font-bold text-stone-400">📜 הזמנות אחרונות שהושלמו / בוטלו</h2>
+        <h2 class="text-base font-bold text-stone-400">📜 הזמנות אחרונות שהושלמו / בוטלו (${archiveOrders.length})</h2>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">${archiveOrders.map((o) => renderCard(o, true)).join("")}</div>
       </div>
     `
         : ""
     }
   `;
+
+  document.getElementById("save-payment-links-btn")?.addEventListener("click", async () => {
+    const bitVal = document.getElementById("admin-bit-link")?.value.trim() || "";
+    const payboxVal = document.getElementById("admin-paybox-link")?.value.trim() || "";
+    await setDoc(
+      doc(db, "config", "settings"),
+      { bitLink: bitVal, payboxLink: payboxVal },
+      { merge: true }
+    );
+    alert("קישורי Bit ו-PayBox נשמרו בהצלחה ומופיעים אצל הלקוחות!");
+  });
+
+  document.getElementById("enable-admin-notifs-btn")?.addEventListener("click", async () => {
+    if (!("Notification" in window)) {
+      alert("הדפדפן לא תומך בהתראות קופצות.");
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm === "granted") {
+      triggerAdminNotification("☕ פאנל בריסטה", "התראות הופעלו! תקבל התראה וצליל על כל הזמנה חדשה.");
+      renderOrdersBoard();
+    }
+  });
 }
 
 function startOrdersListener() {
+  if (unsubSettings) unsubSettings();
   if (unsubOrders) unsubOrders();
-  let isInitialLoad = true;
+
+  unsubSettings = onSnapshot(doc(db, "config", "settings"), (snap) => {
+    if (snap.exists()) {
+      const data = snap.data();
+      paymentSettings.bitLink = data.bitLink || "";
+      paymentSettings.payboxLink = data.payboxLink || "";
+
+      const badge = document.getElementById("cart-status-badge");
+      if (badge) {
+        if (data.isCartClosed) {
+          badge.textContent = "🔴 העגלה סגורה להזמנות";
+          badge.className =
+            "px-3 py-1 rounded-full text-xs font-bold bg-red-900/60 text-red-300 border border-red-700";
+        } else {
+          badge.textContent = "🟢 העגלה פתוחה להזמנות";
+          badge.className =
+            "px-3 py-1 rounded-full text-xs font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-700";
+        }
+      }
+      renderOrdersBoard();
+    }
+  });
 
   unsubOrders = onSnapshot(
     collection(db, "orders"),
     (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+      list.sort((a, b) =>
+        String(b.createdAt || b.date || "").localeCompare(String(a.createdAt || a.date || ""))
+      );
+      allOrders = list;
 
-      if (!isInitialLoad && list.length > allOrders.length) {
-        const newest = list[0];
-        if (newest && newest.status === "pending") {
-          playNewOrderSound();
-        }
+      if (isFirstOrdersLoad) {
+        snap.docs.forEach((d) => knownOrderIds.add(d.id));
+        isFirstOrdersLoad = false;
+      } else {
+        snap.docs.forEach((d) => {
+          if (!knownOrderIds.has(d.id)) {
+            knownOrderIds.add(d.id);
+            const ord = d.data();
+            const typeLabel = ord.orderType === "delivery" ? "משלוח" : "איסוף במקום";
+            triggerAdminNotification(
+              "☕ הזמנה חדשה התקבלה!",
+              `${ord.firstName || "לקוח"} • ${typeLabel} • ₪${ord.totalPrice || 0}`
+            );
+          }
+        });
       }
 
-      isInitialLoad = false;
-      allOrders = list;
       renderOrdersBoard();
     },
     (err) => {
@@ -285,6 +405,6 @@ function startOrdersListener() {
 
 onAuthStateChanged(auth, (user) => {
   if (user) {
-    startOrdersListener();
+    initAdminDashboard();
   }
 });
